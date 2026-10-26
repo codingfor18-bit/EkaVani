@@ -1,0 +1,25 @@
+﻿# Python environments and generated files
+.venv/
+**/.venv/
+__pycache__/
+*.py[cod]
+
+# Frontend dependencies and build output
+node_modules/
+**/node_modules/
+dist/
+
+# Local configuration, databases, and user recordings
+.env
+.env.*
+!.env.example
+backend/ekavani.db
+backend/*.db
+backend/uploads/
+
+# Speech model caches and raw corpora
+.cache/
+**/.cache/
+french_dataset_50mb/
+RAVDESS/
+CaFE/
