@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text
 
 from .database import Base
 
@@ -21,4 +21,5 @@ class PracticeSession(Base):
     transcribed_text = Column(Text, nullable=False)
     detected_emotion = Column(String(100), nullable=False)
     emotion_confidence = Column(Float, nullable=False)
+    assessment_details = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

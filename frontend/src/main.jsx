@@ -5,7 +5,7 @@ import './styles.css';
 
 const API=import.meta.env.VITE_API_URL||'';
 const nav=[['home','⌂','Home'],['practice','◉','Practice'],['progress','▥','My Progress'],['emotions','◉','Emotions'],['history','◷','Feedback History'],['settings','⚙','Settings']];
-const rasas=[['Śṛṅgāra','Affection','♥'],['Hāsya','Joy','☺'],['Karuṇa','Compassion','☼'],['Raudra','Anger','●'],['Vīra','Valor','✦'],['Bhāyānaka','Fear','◉'],['Bībhatsa','Disgust','✿'],['Adbhuta','Wonder','✧'],['Śānta','Calm','☘']];
+const rasas=[['Sringara','Appreciation','S'],['Hasya','Joy','H'],['Karuna','Compassion','K'],['Raudra','Anger','R'],['Vira','Courage','V'],['Bhayanaka','Fear','B'],['Bibhatsa','Disgust','B'],['Adbhuta','Wonder','A'],['Shanta','Calm','S']];
 
 function App(){
 const [page,setPage]=useState('home');
@@ -17,15 +17,39 @@ const [user,setUser]=useState(() => {
 
 const [recording,setRecording]=useState(false);
 const [score,setScore]=useState(0);
-const [emotion,setEmotion]=useState('Śānta (Calm)');
+const [emotion,setEmotion]=useState('Shanta (Calm)');
+const [learnerRasa,setLearnerRasa]=useState('');
+const [sentenceOptions,setSentenceOptions]=useState([]);
+const [sentence,setSentence]=useState(null);
 const [analysis,setAnalysis]=useState(null);
 const [loading,setLoading]=useState(false);
 const [error,setError]=useState('');
 const [history,setHistory]=useState([]);
 const [progress,setProgress]=useState(null);
+const [preferences,setPreferences]=useState({targetLevel:'A2',feedbackStyle:'adaptive',goals:['pronunciation']});
 
 const mediaRecorder=useRef(null);
 const chunks=useRef([]);
+
+useEffect(()=>{
+  fetch(`${API}/api/v1/practice/sentences`)
+    .then(res=>res.ok?res.json():Promise.reject())
+    .then(options=>{
+      setSentenceOptions(options);
+      setSentence(options[0]||null);
+    })
+    .catch(()=>setError('Could not load practice sentences.'));
+},[]);
+
+useEffect(()=>{
+  if(!user?.id) return;
+  try {
+    const stored=localStorage.getItem(`ekavani_preferences_${user.id}`);
+    if(stored) setPreferences({...preferences,...JSON.parse(stored)});
+  } catch {
+    setError('Saved preferences could not be loaded.');
+  }
+},[user?.id]);
 
 useEffect(()=>{
   if(!user) return;
@@ -37,7 +61,7 @@ useEffect(()=>{
       .then(setHistory)
       .catch(()=>setError('Could not load your feedback history.'));
   }
-  if(page==='progress'){
+  if(page==='progress'||page==='home'){
     fetch(`${API}/api/v1/practice/progress`,{headers})
       .then(res=>res.ok?res.json():Promise.reject())
       .then(setProgress)
@@ -50,6 +74,11 @@ if(!user){
 }
 
 const go=p=>setPage(p);
+
+function savePreferences(next){
+  setPreferences(next);
+  if(user?.id) localStorage.setItem(`ekavani_preferences_${user.id}`,JSON.stringify(next));
+}
 
 async function startRecording(){
   setError('');
@@ -75,11 +104,9 @@ async function startRecording(){
         const form=new FormData();
 
         form.append('audio',blob,'practice.webm');
-        form.append(
-          'sentence',
-          "Je voudrais un café, s'il vous plaît."
-        );
-        form.append('learner_id',String(user.id));
+        form.append('sentence',sentence?.text||'');
+        if(learnerRasa) form.append('learner_rasa',learnerRasa);
+        form.append('feedback_style',preferences.feedbackStyle||'adaptive');
 
         const token=localStorage.getItem('ekavani_token');
 
@@ -221,6 +248,7 @@ return <div className="app">
         go={go}
         score={score}
         emotion={emotion}
+        progress={progress}
       />
     }
 
@@ -233,6 +261,11 @@ return <div className="app">
         emotion={emotion}
         analysis={analysis}
         loading={loading}
+        sentence={sentence}
+        sentenceOptions={sentenceOptions}
+        setSentence={setSentence}
+        learnerRasa={learnerRasa}
+        setLearnerRasa={setLearnerRasa}
         go={go}
       />
     }
@@ -245,6 +278,8 @@ return <div className="app">
       <Emotions
         emotion={emotion}
         setEmotion={setEmotion}
+        setLearnerRasa={setLearnerRasa}
+        go={go}
       />
     }
 
@@ -253,7 +288,7 @@ return <div className="app">
     }
 
     {page==='settings'&&
-      <Settings logout={logout}/>
+      <Settings logout={logout} preferences={preferences} onSave={savePreferences}/>
     }
 
   </main>
@@ -289,7 +324,9 @@ function Card({children,className=''}){
   </section>
 }
 
-function Dashboard({go,score,emotion}){
+function Dashboard({go,score,emotion,progress}){
+const hasPractice=(progress?.session_count||0)>0;
+const latestScore=hasPractice?progress.latest_score:0;
 return <>
  <div className="grid top-grid">
 
@@ -298,8 +335,8 @@ return <>
 
     <div>
       <h3>Today's Practice</h3>
-      <h2>Pronunciation — Les sons nasaux</h2>
-      <p>10 min · 5 exercises · Adaptive feedback</p>
+      <h2>Choose a French speaking exercise</h2>
+      <p>Short recording, transcript comparison, and targeted guidance.</p>
 
       <button
         className="primary"
@@ -314,9 +351,9 @@ return <>
   <Card className="progress-ring-card">
     <div
       className="ring"
-      style={{'--value':score+'%'}}
+      style={{'--value':latestScore+'%'}}
     >
-      <span>{score}%</span>
+      <span>{hasPractice?`${latestScore}%`:'?'}</span>
     </div>
 
     <h3>Your Progress</h3>
@@ -335,13 +372,13 @@ return <>
       <b>{emotion}</b>
     </div>
 
-    <p>Detected from your recent speech.</p>
+    <p>Latest model estimate or learner-selected practice mood.</p>
   </Card>
 
   <Card>
-    <div className="label">Practice Streak</div>
-    <div className="streak">🔥 <b>7 days</b></div>
-    <p>Consistency builds Abhyasa.</p>
+    <div className="label">Saved practice</div>
+    <div className="streak"><b>{progress?.session_count||0} sessions</b></div>
+    <p>Repeat practice and review saved feedback to build Abhyasa.</p>
   </Card>
 
   <Card className="quote">
@@ -376,7 +413,7 @@ return <>
 </>
 }
 
-function Practice({recording,startRecording,stopRecording,score,emotion,analysis,loading,go}){
+function Practice({recording,startRecording,stopRecording,score,emotion,analysis,loading,sentence,sentenceOptions,setSentence,learnerRasa,setLearnerRasa,go}){
 return <div className="practice-layout">
 
 <Card className="speech-card">
@@ -392,10 +429,24 @@ return <div className="practice-layout">
 
  <h2>Pronunciation Practice</h2>
 
- <p>Parlez la phrase suivante :</p>
+ <label className="practice-field">
+   Practice sentence
+   <select value={sentence?.id||''} onChange={event=>setSentence(sentenceOptions.find(item=>item.id===event.target.value)||null)}>
+     {sentenceOptions.map(item=><option key={item.id} value={item.id}>{item.level}: {item.text}</option>)}
+   </select>
+   <small>{sentence?.focus}</small>
+ </label>
+
+ <label className="practice-field">
+   How are you feeling? (optional self-report)
+   <select value={learnerRasa} onChange={event=>setLearnerRasa(event.target.value)}>
+     <option value="">Let the 4-label speech model estimate</option>
+     {rasas.map(([name,meaning])=><option key={name} value={name}>{name} - {meaning}</option>)}
+   </select>
+ </label>
 
  <div className="phrase">
-   Je voudrais un café, s'il vous plaît.
+   {sentence?.text||'Loading practice sentences...'}
  </div>
 
  <div className="wave">
@@ -426,16 +477,21 @@ return <div className="practice-layout">
 
  {analysis&&
    <div className="result-box">
-     <b>Analysis complete</b>
-
-     <p>
-       Pronunciation:
-       <strong>{analysis.pronunciation_score}%</strong>
-       · {analysis.feedback_type}
-       · {analysis.feedback_timing}
-     </p>
+     <b>Speech assessment</b>
+     <p>Word-match estimate: <strong>{analysis.pronunciation_score}%</strong>. This compares transcript words with the target; it is not a phoneme score.</p>
+     <p><strong>Heard:</strong> {analysis.transcribed_text||'No words recognized'}</p>
+     <p>{analysis.feedback_type} | {analysis.feedback_timing} ? {analysis.detected_rasa}</p>
+     <p>{analysis.feedback}</p>
+     <ul>
+       <li>Word error rate: {Math.round((analysis.assessment?.word_error_rate||0)*100)}%</li>
+       <li>Speaking rate: {analysis.assessment?.speaking_rate_words_per_minute??'n/a'} words/minute</li>
+       <li>Pauses over 0.7s: {analysis.assessment?.pause_count_over_0_7s??'n/a'}</li>
+       <li>Final pitch contour: {analysis.assessment?.final_pitch_contour||analysis.assessment?.pitch_analysis||'not measured'}</li>
+     </ul>
+     <p><strong>Retrieved guidance:</strong> {(analysis.assessment?.feedback_sources||[]).join(', ')||'general practice'}</p>
    </div>
  }
+
 
  <div className="practice-actions">
    <button
@@ -456,124 +512,72 @@ return <div className="practice-layout">
 </Card>
 
 <Card className="feedback-side">
-
- <h3>Real-time Feedback</h3>
-
- <div className="good">
-   ✓ {analysis?.feedback_type||'Good'}!
- </div>
-
- <ul>
-   <li>
-     Pronunciation
-     <b>{score>=70?'✓ Correct':'△ Improve'}</b>
-   </li>
-
-   <li>
-     Prosody
-     <b>✓ Natural</b>
-   </li>
-
-   <li>
-     Fluency
-     <b>✓ Good</b>
-   </li>
-
-   <li>
-     Completeness
-     <b>✓ Complete</b>
-   </li>
- </ul>
-
- <div className="focus">
-   <strong>✦ Focus</strong>
-
-   <p>
-     {analysis?.feedback||
-     'Your nasal sound “on” is slightly less pronounced. Try to keep the nasalization.'}
-   </p>
- </div>
-
- <button
-   className="primary"
-   onClick={()=>go('emotions')}
- >
-   View Emotion
- </button>
-
+ <h3>Assessment snapshot</h3>
+ {analysis ? <>
+   <ul>
+     <li>Word-match estimate <b>{analysis.pronunciation_score}%</b></li>
+     <li>Omissions <b>{analysis.assessment?.omissions?.length||0}</b></li>
+     <li>Substitutions <b>{analysis.assessment?.substitutions?.length||0}</b></li>
+     <li>Insertions <b>{analysis.assessment?.insertions?.length||0}</b></li>
+     <li>Rasa source <b>{analysis.assessment?.rasa_source||'speech model'}</b></li>
+   </ul>
+   <div className="focus"><strong>Retrieved correction</strong><p>{analysis.feedback}</p></div>
+   <p>Score compares recognized words with the chosen sentence. It does not score phonemes.</p>
+ </> : <p>Record a phrase to see aligned word errors, retrieved guidance, and adapted feedback.</p>}
+ <button className="secondary" onClick={()=>go('emotions')}>Review Navarasa adaptations</button>
 </Card>
 
 </div>
 }
 
-function Progress({score,progress}){
+function Progress({progress}){
 const scores=progress?.scores||[];
+const hasProgress=(progress?.session_count||0)>0;
+const average=progress?.average_score||0;
+const latest=hasProgress?progress.latest_score:0;
 const points=scores.length>1
   ?scores.map((item,i)=>`${i*800/(scores.length-1)},${210-item.score*1.8}`).join(' ')
   :scores.length===1
     ?`0,${210-scores[0].score*1.8} 800,${210-scores[0].score*1.8}`
     :'0,180 800,180';
+const change=progress?.score_change;
 return <>
  <div className="grid four">
-   <Metric title="Accuracy" value={score+'%'}/>
-   <Metric title="Average score" value={(progress?.average_score||0)+'%'}/>
-   <Metric title="Practice sessions" value={progress?.session_count||0}/>
-   <Metric title="Latest score" value={(progress?.latest_score||0)+'%'}/>
+   <Metric title="Average word match" value={hasProgress?`${average}%`:'?'}/>
+   <Metric title="Saved sessions" value={progress?.session_count||0}/>
+   <Metric title="Latest word match" value={hasProgress?`${latest}%`:'?'}/>
+   <Metric title="First-to-latest change" value={change===null||change===undefined?'n/a':`${change>0?'+':''}${change}%`}/>
  </div>
 
  <Card className="chart-card">
-
   <div className="chart-head">
     <div>
-      <h3>Pronunciation Accuracy</h3>
-      <p>Pronunciation scores from your last 10 sessions</p>
+      <h3>Transcript word-match history</h3>
+      <p>Word-level comparison with the target; this is not phoneme scoring.</p>
     </div>
-
-    <b>{score}%</b>
+    <b>{hasProgress?`${latest}%`:'No sessions'}</b>
   </div>
-
   <div className="chart">
-    <div className="gridline g1"/>
-    <div className="gridline g2"/>
-
-    <svg
-      viewBox="0 0 800 220"
-      preserveAspectRatio="none"
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-
+    <div className="gridline g1"/><div className="gridline g2"/>
+    <svg viewBox="0 0 800 220" preserveAspectRatio="none">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="4"/>
       {scores.length>0&&<circle cx="800" cy={210-scores[scores.length-1].score*1.8} r="7" fill="currentColor"/>}
     </svg>
-
   </div>
-
  </Card>
 
  <div className="grid two">
-
   <Card>
-    <h3>Abhyasa Practice</h3>
-    <p>{progress?.session_count||0} sessions completed</p>
-
-    <div className="progress-line">
-      <i style={{width:`${Math.min(progress?.average_score||0,100)}%`}}/>
-    </div>
+    <h3>Abhyasa practice</h3>
+    <p>{progress?.session_count||0} completed practice sessions.</p>
+    <div className="progress-line"><i style={{width:`${Math.min(average,100)}%`}}/></div>
   </Card>
-
   <Card>
-    <h3>Sambandha Profile</h3>
-    <p>Recurring errors: nasal vowels, French r, intonation</p>
-
-    <button className="secondary">
-      Review patterns
-    </button>
+    <h3>Sambandha: recurring transcript errors</h3>
+    {(progress?.recurring_errors||[]).length===0
+      ?<p>No repeated transcript errors recorded yet.</p>
+      :<ul>{progress.recurring_errors.map(item=><li key={item.word}>{item.word}: {item.count} time{item.count===1?'':'s'}</li>)}</ul>}
   </Card>
-
  </div>
 </>
 }
@@ -586,184 +590,96 @@ return <Card className="metric">
 </Card>
 }
 
-function Emotions({emotion,setEmotion}){
+function Emotions({emotion,setEmotion,setLearnerRasa,go}){
 return <>
  <Card className="emotion-current">
-
   <div>
-    <div className="label">Detected from speech</div>
-
+    <div className="label">Latest state</div>
     <h2>{emotion}</h2>
-
-    <p>
-      Acoustic and prosodic analysis estimates the learner's current affective state.
-    </p>
+    <p>The speech checkpoint distinguishes four labels (happy, angry, sad, neutral). This is an estimate, not a nine-rasa classifier.</p>
   </div>
-
-  <div className="audio-box">
-    <div className="wave purple">
-      {Array.from({length:22}).map((_,i)=>
-        <i
-          key={i}
-          style={{height:(12+(i%5)*10)+'px'}}
-        />
-      )}
-    </div>
-
-    <span>Audio emotion analysis</span>
-  </div>
-
+  <div className="audio-box"><span>Speech emotion recognition ? 4 model labels</span></div>
  </Card>
-
  <Card>
-
   <div className="section-head">
-    <h3>Navarasa Framework</h3>
-    <span>Select a state to preview adaptation</span>
+    <h3>Navarasa adaptation</h3>
+    <span>Select a self-reported state for your next practice</span>
   </div>
-
   <div className="rasa-grid">
-    {rasas.map(([name,en,icon])=>
-      <button
-        key={name}
-        className={emotion.startsWith(name)?'selected':''}
-        onClick={()=>setEmotion(name+' ('+en+')')}
-      >
-        <span>{icon}</span>
-        <b>{name}</b>
-        <small>{en}</small>
-      </button>
-    )}
+    {rasas.map(([name,meaning,icon])=><button key={name}
+      className={emotion.startsWith(name)?'selected':''}
+      onClick={()=>{setEmotion(`${name} (${meaning}) - self-reported`);setLearnerRasa(name);go('practice');}}>
+      <span>{icon}</span><b>{name}</b><small>{meaning}</small>
+    </button>)}
   </div>
-
+  <p>Rasa changes the feedback tone and suggested next activity. Learner-selected states are recorded separately from the speech-model estimate.</p>
  </Card>
 </>
 }
 
 function History({records}){
 return <Card className="history">
-
- <h3>Past Feedback</h3>
-
+ <h3>Feedback history</h3>
  {records.length===0&&<p>Your completed practice sessions will appear here.</p>}
- {records.map((record,i)=>
-   <div className="history-row" key={i}>
-
-     <div className="dot"/>
-
-     <div className="hist-main">
-       <b>{record.sentence}</b>
-       <small>{new Date(record.created_at).toLocaleString()}</small>
-     </div>
-
-     <span className="type">{record.pronunciation_score}% · {record.feedback_type}</span>
-     <span className="rasa-pill">{record.detected_rasa}</span>
-
-     <button>▶</button>
-
+ {records.map(record=><article className="history-row" key={record.id}>
+   <div className="dot"/>
+   <div className="hist-main">
+     <b>{record.sentence}</b>
+     <small>{new Date(record.created_at).toLocaleString()} | Heard: {record.transcribed_text||'?'}</small>
+     <p>{record.feedback}</p>
+     <small>Next: {record.next_activity}</small>
    </div>
- )}
-
- <button className="wide secondary">
-   View All Feedback
- </button>
-
+   <span className="type">{record.pronunciation_score}% word match | {record.feedback_type}</span>
+   <span className="rasa-pill">{record.detected_rasa}</span>
+ </article>)}
 </Card>
 }
 
-function Settings({logout}){
+function Settings({logout,preferences,onSave}){
+const [draft,setDraft]=useState(preferences);
+const [saved,setSaved]=useState(false);
+useEffect(()=>setDraft(preferences),[preferences]);
+const goals=[['pronunciation','Improve pronunciation'],['intonation','Notice rhythm and intonation'],['fluency','Build speaking fluency'],['conversation','Practise real-life conversation']];
+function toggleGoal(goal){
+  const current=draft.goals||[];
+  setDraft({...draft,goals:current.includes(goal)?current.filter(item=>item!==goal):[...current,goal]});
+  setSaved(false);
+}
 return <div className="settings-grid">
-
  <Card>
-
-  <h3>Learning Preferences</h3>
-
-  <label>
-    Target Level
-    <select>
-      <option>A2 (Intermediate)</option>
-      <option>B1</option>
-      <option>B2</option>
-    </select>
+  <h3>Learning preferences</h3>
+  <label className="practice-field">Target level
+   <select value={draft.targetLevel||'A2'} onChange={event=>{setDraft({...draft,targetLevel:event.target.value});setSaved(false);}}>
+    <option>A1</option><option>A2</option><option>B1</option><option>B2</option>
+   </select>
   </label>
-
-  <label>Learning Goals</label>
-
-  <label className="check">
-    <input type="checkbox" defaultChecked/>
-    Improve Pronunciation
+  <label>Learning goals</label>
+  {goals.map(([id,label])=><label className="check" key={id}>
+    <input type="checkbox" checked={(draft.goals||[]).includes(id)} onChange={()=>toggleGoal(id)}/>{label}
+  </label>)}
+  <label className="practice-field">Feedback tone
+   <select value={draft.feedbackStyle||'adaptive'} onChange={event=>{setDraft({...draft,feedbackStyle:event.target.value});setSaved(false);}}>
+    <option value="adaptive">Adapt to the selected rasa</option>
+    <option value="supportive">Supportive and encouraging</option>
+    <option value="direct">Clear and direct</option>
+   </select>
   </label>
-
-  <label className="check">
-    <input type="checkbox" defaultChecked/>
-    Better Intonation & Prosody
-  </label>
-
-  <label className="check">
-    <input type="checkbox" defaultChecked/>
-    Build Fluency
-  </label>
-
-  <label className="check">
-    <input type="checkbox"/>
-    Real-life Conversations
-  </label>
-
-  <label>
-    Feedback Tone
-    <select>
-      <option>Supportive & Encouraging</option>
-      <option>Direct & Corrective</option>
-    </select>
-  </label>
-
-  <button className="primary wide">
-    Save Changes
-  </button>
-
-  <button
-    className="secondary wide"
-    onClick={logout}
-    style={{marginTop:'10px'}}
-  >
-    Logout
-  </button>
-
+  <button className="primary wide" onClick={()=>{onSave(draft);setSaved(true);}}>Save preferences</button>
+  {saved&&<p role="status">Preferences saved in this browser for this account.</p>}
+  <button className="secondary wide" onClick={logout} style={{marginTop:'10px'}}>Logout</button>
  </Card>
-
  <Card>
-
-  <h3>System Adaptation</h3>
-
-  <div className="setting-item">
-    <span>Speech Emotion Recognition</span>
-    <b className="toggle on">ON</b>
-  </div>
-
-  <div className="setting-item">
-    <span>RAG Grounding</span>
-    <b className="toggle on">ON</b>
-  </div>
-
-  <div className="setting-item">
-    <span>Adaptive Timing</span>
-    <b className="toggle on">ON</b>
-  </div>
-
-  <div className="setting-item">
-    <span>Self-directed practice</span>
-    <b className="toggle on">ON</b>
-  </div>
-
+  <h3>What the prototype actually measures</h3>
+  <div className="setting-item"><span>French transcription</span><b>Whisper</b></div>
+  <div className="setting-item"><span>Emotion estimate</span><b>4 model labels</b></div>
+  <div className="setting-item"><span>Navarasa adaptations</span><b>9 available</b></div>
+  <div className="setting-item"><span>Feedback grounding</span><b>Retrieved rules + templates</b></div>
   <div className="privacy">
-    <b>Privacy</b>
-    <p>
-      Audio is processed for learning feedback. Keep only the history you need.
-    </p>
+   <b>Measurement limits</b>
+   <p>The word-match score is not a phoneme score. Pitch and ASR confidence are descriptive proxies; this prototype has no validated prosody or human intelligibility scoring.</p>
+   <p>Your saved practice history is stored in the configured database. Preferences are stored locally in this browser.</p>
   </div>
-
  </Card>
-
 </div>
 }
 

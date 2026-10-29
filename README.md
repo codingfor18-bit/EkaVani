@@ -17,7 +17,7 @@ pip install -r requirements-speech.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-The first speech analysis may download the Whisper and emotion models. Install FFmpeg and make sure `ffmpeg` is on PATH for Whisper audio decoding. The lightweight backend (auth, health, and database APIs) starts without the optional speech packages; the analysis endpoint explains if they are missing.
+The first speech analysis may download the Whisper and emotion models. Install FFmpeg and make sure `ffmpeg` is on PATH for Whisper audio decoding. The container installs these speech packages and FFmpeg as well.
 
 Check `http://127.0.0.1:8000/health` and API docs at `http://127.0.0.1:8000/docs`.
 
@@ -35,7 +35,7 @@ Open the Vite URL printed in the terminal. During local development, Vite proxie
 
 ## Database configuration
 
-The default is `sqlite:///./ekavani.db`, created in the backend working directory. For PostgreSQL, install the included driver and set `DATABASE_URL`, for example:
+For local experiments without a configured server, the app falls back to `sqlite:///./ekavani.db`. The hosted Render service requires `DATABASE_URL` and uses the Neon PostgreSQL connection string; it fails at startup if the variable is missing. For PostgreSQL, set `DATABASE_URL`, for example:
 
 ```text
 postgresql+psycopg://user:password@localhost:5432/ekavani
@@ -49,14 +49,23 @@ The repository includes a Render Blueprint and Dockerfile that serve the built R
 
 1. Push this project to GitHub and connect the repository in Render with **New → Blueprint**.
 2. Select the `render.yaml` Blueprint and create the `ekavani` service in Singapore.
-3. When Render asks for `DATABASE_URL`, enter the pooled Neon `DATABASE_URL` from the project root `.env.local`. Render generates `JWT_SECRET_KEY` for the hosted app.
+3. When Render asks for `DATABASE_URL`, enter the pooled Neon `DATABASE_URL` from the project root `.env.local`. Render generates `JWT_SECRET_KEY` for the hosted app. Never commit `.env.local` or paste its value into source code.
 4. Wait for the service health check to pass, then open its `onrender.com` URL.
 
-The app stores account and practice data in Neon; it does not need a local SQLite database when `DATABASE_URL` is set. The free Render web service sleeps after 15 minutes without traffic, so its first request after sleeping can take longer. Speech analysis is optional in this prototype; the hosted image uses the lightweight backend requirements, so audio analysis needs the additional packages in `backend/requirements-speech.txt` and a host with enough memory for the speech models.
+The app stores account and practice data in Neon; it does not use SQLite when `DATABASE_URL` is set. The free Render web service sleeps after 15 minutes without traffic, so its first request after sleeping can take longer. The Docker image includes Whisper, the four-label SUPERB emotion model dependencies, FFmpeg, and pitch-analysis dependencies. Speech model weights download on first use and require sufficient memory; the free web-service plan may not have enough memory for both models, so verify the live audio endpoint after deployment and use a larger instance if it runs out of memory.
 
 ## Scope and limitations
 
-Practice history and progress are user-specific. Pronunciation scoring is currently transcript similarity, not phoneme-level pronunciation assessment. Emotion labels come from a general speech-emotion model and should be treated as an estimate. The frontend design is retained; the progress and history pages now use saved practice data.
+Practice history and progress are user-specific and stored in the configured database. Speech assessment uses French Whisper transcription and token-level word error alignment; the displayed word-match estimate is not phoneme-level pronunciation assessment. Timing, pitch movement, and Whisper confidence are observable proxies, not validated fluency, prosody, or human intelligibility scores. The SUPERB emotion checkpoint predicts four labels (happy, angry, sad, neutral), not all nine Navarasas. Learners can self-select one of nine rasa profiles, which changes feedback tone and next-practice suggestions. The feedback pipeline ranks a curated French-pronunciation knowledge base against the target and aligned word errors, then uses retrieved notes in deterministic feedback templates. It is retrieval-grounded feedback, not LLM-generated prose. Preferences remain in the learner's browser; account and practice data are saved in the database.
+
+Run the focused backend evaluation and integration suite from the project root:
+
+```powershell
+$env:PYTHONPATH = 'backend'
+.\backend\.venv\Scripts\python.exe -m unittest discover -s backend/tests -v
+```
+
+The API integration test uses a stubbed speech recognizer and a temporary SQLite test database. A separate live smoke check was also run against Neon with the cached Whisper and SER checkpoints; its temporary test account and practice record were deleted afterward. The smoke recording was silence, so it validates the inference and persistence path, not recognition quality.
 
 ## Reproducible ASR pilot
 

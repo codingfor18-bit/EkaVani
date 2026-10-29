@@ -14,7 +14,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+COPY backend/requirements-speech.txt /app/backend/requirements-speech.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r /app/backend/requirements.txt \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install --no-cache-dir -r /app/backend/requirements-speech.txt
 
 COPY backend/app /app/backend/app
 COPY --from=frontend-build /web/dist /app/frontend/dist

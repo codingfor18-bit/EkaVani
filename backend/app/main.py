@@ -19,7 +19,17 @@ from app.auth import (
     hash_password,
     verify_password,
 )
-from app.models.database import Base, engine, get_db
+from app.learning import (
+    PRACTICE_SENTENCES,
+    RASA_PROFILES,
+    assess_speech,
+    generate_grounded_feedback,
+    infer_rasa,
+    retrieve_guidance,
+    summarize_progress,
+    validate_rasa,
+)
+from app.models.database import Base, engine, ensure_assessment_details_column, get_db
 from app.models.practice_session import PracticeSession
 from app.models.user import User
 
@@ -62,6 +72,7 @@ class PracticeResponse(BaseModel):
     transcribed_text: str
     detected_emotion: str
     emotion_confidence: float
+    assessment: dict = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -74,6 +85,7 @@ def settings_origins() -> list[str]:
 
 
 Base.metadata.create_all(bind=engine)
+ensure_assessment_details_column()
 
 app = FastAPI(title="EkaVani API", version="1.1.0")
 app.add_middleware(
@@ -122,33 +134,39 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     return auth_payload(user, "Login successful")
 
 
-KNOWLEDGE_BASE = {
-    "bonjour": "The French 'on' sound is nasal. Let the sound resonate through the nose.",
-    "café": "Keep the final 'é' as a clear closed vowel, without an English diphthong.",
-    "français": "The 'an' sound is a nasal vowel; avoid pronouncing a strong final n.",
-    "rouge": "French 'r' is produced toward the back of the throat rather than as an English r.",
-}
+def extract_pitch_features(audio_path: str) -> dict:
+    """Describe pitch movement when librosa is installed; do not grade it."""
+    try:
+        import librosa
+        import numpy as np
+
+        samples, sample_rate = librosa.load(audio_path, sr=16000, mono=True)
+        if samples.size < sample_rate // 4:
+            return {"pitch_analysis": "unavailable: recording is too short"}
+        pitch = librosa.yin(samples, fmin=70, fmax=400, sr=sample_rate)
+        pitch = pitch[np.isfinite(pitch)]
+        if pitch.size < 4:
+            return {"pitch_analysis": "unavailable: no stable voiced pitch found"}
+        quarter = max(1, pitch.size // 4)
+        first = float(np.median(pitch[:quarter]))
+        last = float(np.median(pitch[-quarter:]))
+        delta = last - first
+        contour = "rising" if delta >= 15 else "falling" if delta <= -15 else "mostly level"
+        return {
+            "pitch_mean_hz": round(float(np.median(pitch)), 1),
+            "pitch_range_hz": round(float(np.percentile(pitch, 90) - np.percentile(pitch, 10)), 1),
+            "final_pitch_change_hz": round(delta, 1),
+            "final_pitch_contour": contour,
+            "prosody_note": "Acoustic description only; no validated intonation target is available.",
+        }
+    except ImportError:
+        return {"pitch_analysis": "unavailable: install backend/requirements-speech.txt"}
+    except Exception as exc:
+        return {"pitch_analysis": f"unavailable: {type(exc).__name__}"}
 
 
-def retrieve_knowledge(text: str) -> str:
-    normalized = text.casefold()
-    for word, guidance in KNOWLEDGE_BASE.items():
-        if word in normalized:
-            return guidance
-    return "Focus on French vowel quality, consonant accuracy, rhythm, and intonation."
-
-
-def analyze_pronunciation(audio_path: str, transcript: str, expected: str) -> float:
-    """Prototype match score; this is not a phoneme-level pronunciation assessment."""
-    from rapidfuzz.fuzz import ratio
-
-    if not transcript.strip():
-        return 0.0
-    return round(float(ratio(transcript.casefold().strip(), expected.casefold().strip())), 1)
-
-
-def transcribe_and_detect(audio_path: str) -> tuple[str, str, str, float]:
-    """Load heavyweight speech models on first use so auth and health start quickly."""
+def transcribe_and_detect(audio_path: str) -> dict:
+    """Transcribe French and estimate one of the SER checkpoint's four labels."""
     try:
         import whisper
         from transformers import pipeline
@@ -172,6 +190,7 @@ def transcribe_and_detect(audio_path: str) -> tuple[str, str, str, float]:
             task="transcribe",
             temperature=0,
             condition_on_previous_text=False,
+            word_timestamps=True,
         )
         transcript = result.get("text", "").strip()
         emotions = emotion_classifier(audio_path)
@@ -179,51 +198,36 @@ def transcribe_and_detect(audio_path: str) -> tuple[str, str, str, float]:
         raise HTTPException(status_code=422, detail=f"Could not analyze this audio: {exc}") from exc
 
     emotion_result = emotions[0] if emotions else {"label": "neu", "score": 0.0}
-    label = str(emotion_result["label"]).lower()
-    confidence = round(float(emotion_result["score"]) * 100, 1)
-    emotion_to_rasa = {
-        "neu": ("Shanta (Calm)", "neutral"),
-        "hap": ("Hasya (Joy)", "happy"),
-        "ang": ("Raudra (Anger)", "angry"),
-        "sad": ("Karuna (Compassion)", "sad"),
-        "fear": ("Bhayanaka (Fear)", "fear"),
-        "dis": ("Bibhatsa (Disgust)", "disgust"),
+    return {
+        "transcript": transcript,
+        "emotion_label": str(emotion_result["label"]).lower(),
+        "emotion_confidence": round(float(emotion_result["score"]) * 100, 1),
+        "segments": result.get("segments", []),
     }
-    rasa, emotion = emotion_to_rasa.get(label, ("Shanta (Calm)", label))
-    return transcript, rasa, emotion, confidence
 
 
 whisper_model = None
 emotion_classifier = None
 
 
-def feedback_for(score: float) -> tuple[str, str, str, str]:
-    if score < 60:
-        return (
-            "Encouraging", "Delayed",
-            "Take your time. Repeat the phrase slowly and build confidence.",
-            "Repeat the pronunciation exercise",
-        )
-    if score < 80:
-        return (
-            "Corrective + Encouraging", "Immediate",
-            "Good focus. Refine the target sound while keeping your natural rhythm.",
-            "Practise similar French words",
-        )
-    return (
-        "Exploratory", "Immediate",
-        "Great work. Try another sentence using the same pronunciation pattern.",
-        "Attempt a new conversational sentence",
-    )
-
-
 @app.post("/api/v1/practice/analyze", response_model=PracticeResponse)
 async def analyze_practice(
     audio: UploadFile = File(...),
     sentence: str = Form(..., min_length=1, max_length=500),
+    learner_rasa: str | None = Form(default=None),
+    feedback_style: str = Form(default="adaptive"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    sentence = sentence.strip()
+    if not sentence:
+        raise HTTPException(status_code=422, detail="Choose a non-empty practice sentence")
+    chosen_rasa = validate_rasa(learner_rasa)
+    if learner_rasa and not chosen_rasa:
+        raise HTTPException(status_code=422, detail="Unknown Navarasa selection")
+    if feedback_style not in {"adaptive", "supportive", "direct"}:
+        raise HTTPException(status_code=422, detail="Unknown feedback style")
+
     filename = (audio.filename or "").lower()
     allowed_types = {"audio/webm", "audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/ogg"}
     if audio.content_type not in allowed_types and Path(filename).suffix not in {
@@ -244,27 +248,52 @@ async def analyze_practice(
         with tempfile.NamedTemporaryFile(prefix="ekavani-", suffix=suffix, delete=False) as temp:
             temp.write(content)
             temp_path = temp.name
-        transcript, rasa, emotion, confidence = transcribe_and_detect(temp_path)
-        score = analyze_pronunciation(temp_path, transcript, sentence)
+        speech = transcribe_and_detect(temp_path)
+        transcript = speech["transcript"]
+        assessment = assess_speech(sentence, transcript, speech.get("segments", []))
+        assessment.update(extract_pitch_features(temp_path))
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
 
-    knowledge = retrieve_knowledge(transcript)
-    feedback_type, timing, feedback, next_activity = feedback_for(score)
+    model_rasa, rasa_source = infer_rasa(
+        speech["emotion_label"], speech["emotion_confidence"]
+    )
+    rasa = chosen_rasa or model_rasa
+    if chosen_rasa:
+        rasa_source = "learner-selected"
+    assessment["rasa"] = rasa
+    assessment["rasa_source"] = rasa_source
+    assessment["ser_supported_labels"] = ["ang", "hap", "neu", "sad"]
+    assessment["assessment_limitations"] = [
+        "Word-match score measures transcript content, not phoneme accuracy.",
+        "Intelligibility is represented only by an ASR confidence proxy.",
+        "Pitch is described acoustically and is not judged against a validated prosody target.",
+        "The speech emotion model has four labels; the nine-rasa selection is an adaptation framework, not nine-class SER.",
+    ]
+    guidance = retrieve_guidance(sentence, transcript, assessment)
+    generated = generate_grounded_feedback(
+        sentence, transcript, assessment, guidance, rasa, rasa_source, feedback_style
+    )
+    knowledge = "\n\n".join(
+        f"[{item['id']}] {item['title']}: {item['content']} Practice cue: {item['drill']}"
+        for item in guidance
+    )
+    assessment["feedback_sources"] = [item["id"] for item in guidance]
     record = PracticeSession(
         user_id=current_user.id,
-        sentence=sentence.strip(),
-        pronunciation_score=score,
-        detected_rasa=rasa,
-        feedback_type=feedback_type,
-        feedback_timing=timing,
-        feedback=feedback,
+        sentence=sentence,
+        pronunciation_score=assessment["word_match_score"],
+        detected_rasa=f"{rasa} ({RASA_PROFILES[rasa]['meaning']})",
+        feedback_type=generated["feedback_type"],
+        feedback_timing=generated["feedback_timing"],
+        feedback=generated["feedback"],
         retrieved_knowledge=knowledge,
-        next_activity=next_activity,
+        next_activity=generated["next_activity"],
         transcribed_text=transcript,
-        detected_emotion=emotion,
-        emotion_confidence=confidence,
+        detected_emotion=speech["emotion_label"],
+        emotion_confidence=speech["emotion_confidence"],
+        assessment_details=assessment,
     )
     db.add(record)
     db.commit()
@@ -278,7 +307,13 @@ def session_response(record: PracticeSession) -> dict:
         for column in PracticeSession.__table__.columns
     }
     response["learner_id"] = response.pop("user_id")
+    response["assessment"] = response.pop("assessment_details", None) or {}
     return response
+
+
+@app.get("/api/v1/practice/sentences")
+def practice_sentences():
+    return PRACTICE_SENTENCES
 
 
 @app.get("/api/v1/practice/history", response_model=list[PracticeResponse])
@@ -309,16 +344,14 @@ def practice_progress(current_user: User = Depends(get_current_user), db: Sessio
         .order_by(PracticeSession.created_at)
         .all()
     )
-    scores = [record.pronunciation_score for record in records]
-    return {
-        "session_count": len(records),
-        "average_score": round(sum(scores) / len(scores), 1) if scores else 0,
-        "latest_score": scores[-1] if scores else 0,
-        "scores": [
-            {"score": record.pronunciation_score, "created_at": record.created_at}
-            for record in records[-10:]
-        ],
-    }
+    return summarize_progress([
+        {
+            "pronunciation_score": record.pronunciation_score,
+            "created_at": record.created_at.isoformat(),
+            "assessment_details": record.assessment_details,
+        }
+        for record in records
+    ])
 
 
 @app.get("/api/v1/auth/me", response_model=UserResponse)

@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from dotenv import load_dotenv
 
@@ -37,6 +37,19 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
+
+def ensure_assessment_details_column() -> None:
+    """Add the assessment JSON to existing installs without losing history."""
+    inspector = inspect(engine)
+    if "practice_sessions" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("practice_sessions")}
+    if "assessment_details" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE practice_sessions ADD COLUMN assessment_details JSON")
+            )
 
 
 def get_db():
