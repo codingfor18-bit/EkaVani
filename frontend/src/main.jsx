@@ -3,7 +3,7 @@ import Auth from './Auth';
 import {createRoot} from 'react-dom/client';
 import './styles.css';
 
-const API=import.meta.env.VITE_API_URL||'http://127.0.0.1:8000';
+const API=import.meta.env.VITE_API_URL||'';
 const nav=[['home','⌂','Home'],['practice','◉','Practice'],['progress','▥','My Progress'],['emotions','◉','Emotions'],['history','◷','Feedback History'],['settings','⚙','Settings']];
 const rasas=[['Śṛṅgāra','Affection','♥'],['Hāsya','Joy','☺'],['Karuṇa','Compassion','☼'],['Raudra','Anger','●'],['Vīra','Valor','✦'],['Bhāyānaka','Fear','◉'],['Bībhatsa','Disgust','✿'],['Adbhuta','Wonder','✧'],['Śānta','Calm','☘']];
 

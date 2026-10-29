@@ -23,3 +23,4 @@ backend/uploads/
 french_dataset_50mb/
 RAVDESS/
 CaFE/
+.neon

@@ -31,7 +31,7 @@ npm install
 npm run dev
 ```
 
-Open the Vite URL printed in the terminal. The API URL defaults to `http://127.0.0.1:8000`; set `VITE_API_URL` in `frontend/.env` if needed.
+Open the Vite URL printed in the terminal. During local development, Vite proxies API requests to `http://127.0.0.1:8000`. Set `VITE_API_URL` in `frontend/.env` only when the frontend and backend are hosted separately.
 
 ## Database configuration
 
@@ -42,6 +42,17 @@ postgresql+psycopg://user:password@localhost:5432/ekavani
 ```
 
 Copy `backend/.env.example` to `backend/.env` and set environment variables in your shell or hosting service. Do not use the example JWT key for deployment. The app currently creates tables on startup; use a migration tool before changing the deployed schema.
+
+## Deploy the website online
+
+The repository includes a Render Blueprint and Dockerfile that serve the built React site and FastAPI API from one URL. To deploy it:
+
+1. Push this project to GitHub and connect the repository in Render with **New → Blueprint**.
+2. Select the `render.yaml` Blueprint and create the `ekavani` service in Singapore.
+3. When Render asks for `DATABASE_URL`, enter the pooled Neon `DATABASE_URL` from the project root `.env.local`. Render generates `JWT_SECRET_KEY` for the hosted app.
+4. Wait for the service health check to pass, then open its `onrender.com` URL.
+
+The app stores account and practice data in Neon; it does not need a local SQLite database when `DATABASE_URL` is set. The free Render web service sleeps after 15 minutes without traffic, so its first request after sleeping can take longer. Speech analysis is optional in this prototype; the hosted image uses the lightweight backend requirements, so audio analysis needs the additional packages in `backend/requirements-speech.txt` and a host with enough memory for the speech models.
 
 ## Scope and limitations
 

@@ -7,9 +7,11 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import desc, text
 from sqlalchemy.orm import Session
+from fastapi.staticfiles import StaticFiles
 
 from app.auth import (
     create_access_token,
@@ -61,6 +63,9 @@ class PracticeResponse(BaseModel):
     detected_emotion: str
     emotion_confidence: float
     created_at: datetime
+
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def settings_origins() -> list[str]:
@@ -323,6 +328,9 @@ def me(current_user: User = Depends(get_current_user)):
 
 @app.get("/")
 def root():
+    index_file = FRONTEND_DIST / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
     return {"system": "EkaVani", "status": "running"}
 
 
@@ -333,3 +341,7 @@ def health(db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
     return {"status": "ok", "service": "ekavani-api"}
+
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
