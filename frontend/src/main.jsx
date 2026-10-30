@@ -20,6 +20,7 @@ const [score,setScore]=useState(0);
 const [emotion,setEmotion]=useState('Shanta (Calm)');
 const [learnerRasa,setLearnerRasa]=useState('');
 const [sentenceOptions,setSentenceOptions]=useState([]);
+const [practiceLevel,setPracticeLevel]=useState('A1');
 const [sentence,setSentence]=useState(null);
 const [analysis,setAnalysis]=useState(null);
 const [loading,setLoading]=useState(false);
@@ -95,49 +96,8 @@ async function startRecording(){
 
     rec.onstop=async()=>{
       stream.getTracks().forEach(t=>t.stop());
-
       const blob=new Blob(chunks.current,{type:'audio/webm'});
-
-      setLoading(true);
-
-      try{
-        const form=new FormData();
-
-        form.append('audio',blob,'practice.webm');
-        form.append('sentence',sentence?.text||'');
-        if(learnerRasa) form.append('learner_rasa',learnerRasa);
-        form.append('feedback_style',preferences.feedbackStyle||'adaptive');
-
-        const token=localStorage.getItem('ekavani_token');
-
-        const res=await fetch(
-          `${API}/api/v1/practice/analyze`,
-          {
-            method:'POST',
-            headers:{
-              Authorization:`Bearer ${token}`
-            },
-            body:form
-          }
-        );
-
-        if(!res.ok){
-          const problem=await res.json().catch(()=>({}));
-          throw new Error(problem.detail||'Audio analysis failed. Please try again.');
-        }
-
-        const data=await res.json();
-
-        setAnalysis(data);
-        setScore(data.pronunciation_score);
-        setEmotion(data.detected_rasa);
-        go('practice');
-
-      }catch(e){
-        setError(e.message||'Audio analysis failed. Please try again.');
-      }finally{
-        setLoading(false);
-      }
+      await analyzeAudio(blob,'practice.webm');
     };
 
     mediaRecorder.current=rec;
@@ -149,6 +109,52 @@ async function startRecording(){
       'Microphone permission is required for live speech practice.'
     );
   }
+}
+
+async function analyzeAudio(blob,filename){
+  if(!sentence){
+    setError('Choose a practice sentence before submitting audio.');
+    return;
+  }
+  setError('');
+  setLoading(true);
+  try{
+    const form=new FormData();
+    form.append('audio',blob,filename);
+    form.append('sentence',sentence.text);
+    if(learnerRasa) form.append('learner_rasa',learnerRasa);
+    form.append('feedback_style',preferences.feedbackStyle||'adaptive');
+    const token=localStorage.getItem('ekavani_token');
+    const res=await fetch(`${API}/api/v1/practice/analyze`,{
+      method:'POST',
+      headers:{Authorization:`Bearer ${token}`},
+      body:form
+    });
+    if(!res.ok){
+      const problem=await res.json().catch(()=>({}));
+      throw new Error(problem.detail||'Audio analysis failed. Please try another clip.');
+    }
+    const data=await res.json();
+    setAnalysis(data);
+    setScore(data.pronunciation_score);
+    setEmotion(data.detected_rasa);
+    go('practice');
+  }catch(e){
+    setError(e.message||'Audio analysis failed. Please try another clip.');
+  }finally{
+    setLoading(false);
+  }
+}
+
+async function uploadAudio(event){
+  const file=event.target.files?.[0];
+  if(file) await analyzeAudio(file,file.name);
+  event.target.value='';
+}
+
+function chooseSentence(option){
+  setSentence(option);
+  setAnalysis(null);
 }
 
 function stopRecording(){
@@ -263,7 +269,10 @@ return <div className="app">
         loading={loading}
         sentence={sentence}
         sentenceOptions={sentenceOptions}
-        setSentence={setSentence}
+        practiceLevel={practiceLevel}
+        setPracticeLevel={setPracticeLevel}
+        setSentence={chooseSentence}
+        uploadAudio={uploadAudio}
         learnerRasa={learnerRasa}
         setLearnerRasa={setLearnerRasa}
         go={go}
@@ -413,7 +422,8 @@ return <>
 </>
 }
 
-function Practice({recording,startRecording,stopRecording,score,emotion,analysis,loading,sentence,sentenceOptions,setSentence,learnerRasa,setLearnerRasa,go}){
+function Practice({recording,startRecording,stopRecording,analysis,loading,sentence,sentenceOptions,practiceLevel,setPracticeLevel,setSentence,uploadAudio,learnerRasa,setLearnerRasa,go}){
+const levelSentences=sentenceOptions.filter(item=>item.level===practiceLevel);
 return <div className="practice-layout">
 
 <Card className="speech-card">
@@ -430,11 +440,23 @@ return <div className="practice-layout">
  <h2>Pronunciation Practice</h2>
 
  <label className="practice-field">
-   Practice sentence
-   <select value={sentence?.id||''} onChange={event=>setSentence(sentenceOptions.find(item=>item.id===event.target.value)||null)}>
-     {sentenceOptions.map(item=><option key={item.id} value={item.id}>{item.level}: {item.text}</option>)}
+   CEFR difficulty level
+   <select value={practiceLevel} onChange={event=>{
+     const level=event.target.value;
+     setPracticeLevel(level);
+     setSentence(sentenceOptions.find(item=>item.level===level)||null);
+   }}>
+     {['A1','A2','B1','B2','C1','C2'].map(level=><option key={level} value={level}>{level}</option>)}
+   </select>
+ </label>
+
+ <label className="practice-field">
+   Practice sentence ({levelSentences.length} available at {practiceLevel})
+   <select value={sentence?.id||''} onChange={event=>setSentence(levelSentences.find(item=>item.id===event.target.value)||null)}>
+     {levelSentences.map(item=><option key={item.id} value={item.id}>{item.text}</option>)}
    </select>
    <small>{sentence?.focus}</small>
+   <small>CEFR-style practice prompts; these labels are guides, not a formal placement test.</small>
  </label>
 
  <label className="practice-field">
@@ -474,6 +496,12 @@ return <div className="practice-layout">
        :'Click the microphone to speak'
    }
  </div>
+
+ <label className="practice-field upload-field">
+   Or upload one audio clip for this sentence
+   <input type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm" onChange={uploadAudio} disabled={loading||recording||!sentence}/>
+   <small>Upload another clip or record again to compare attempts. Each attempt is saved separately.</small>
+ </label>
 
  {analysis&&
    <div className="result-box">

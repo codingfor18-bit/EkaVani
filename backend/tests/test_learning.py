@@ -14,6 +14,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.learning import (
+    PRACTICE_LEVELS,
+    PRACTICE_SENTENCES,
     RASA_PROFILES,
     assess_speech,
     generate_grounded_feedback,
@@ -25,6 +27,12 @@ from app.learning import (
 
 
 class SpeechAssessmentTests(unittest.TestCase):
+    def test_practice_prompts_cover_each_cefr_level(self):
+        self.assertEqual({item["level"] for item in PRACTICE_SENTENCES}, set(PRACTICE_LEVELS))
+        self.assertEqual(len(PRACTICE_SENTENCES), 12)
+        for level in PRACTICE_LEVELS:
+            self.assertEqual(sum(item["level"] == level for item in PRACTICE_SENTENCES), 2)
+
     def test_exact_match_is_case_punctuation_and_accent_insensitive(self):
         result = word_errors("Je voudrais un café, s'il vous plaît.", "JE VOUDRAIS UN cafe s'il vous plait")
         self.assertTrue(result["exact_match"])
@@ -165,6 +173,8 @@ class PracticeApiIntegrationTests(unittest.TestCase):
         self.assertEqual(progress.json()["session_count"], 1)
         self.assertEqual(progress.json()["latest_score"], 100)
         self.assertEqual(self.client.get("/api/v1/practice/sentences").status_code, 200)
+        self.assertEqual(len(self.client.get("/api/v1/practice/sentences?level=c1").json()), 2)
+        self.assertEqual(self.client.get("/api/v1/practice/sentences?level=C3").status_code, 422)
         self.assertFalse(os.path.exists(transcribe.call_args.args[0]))
 
 

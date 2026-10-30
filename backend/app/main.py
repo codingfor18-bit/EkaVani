@@ -20,6 +20,7 @@ from app.auth import (
     verify_password,
 )
 from app.learning import (
+    PRACTICE_LEVELS,
     PRACTICE_SENTENCES,
     RASA_PROFILES,
     assess_speech,
@@ -312,8 +313,13 @@ def session_response(record: PracticeSession) -> dict:
 
 
 @app.get("/api/v1/practice/sentences")
-def practice_sentences():
-    return PRACTICE_SENTENCES
+def practice_sentences(level: str | None = None):
+    if level is None:
+        return PRACTICE_SENTENCES
+    normalized_level = level.upper()
+    if normalized_level not in PRACTICE_LEVELS:
+        raise HTTPException(status_code=422, detail="Level must be A1, A2, B1, B2, C1, or C2")
+    return [sentence for sentence in PRACTICE_SENTENCES if sentence["level"] == normalized_level]
 
 
 @app.get("/api/v1/practice/history", response_model=list[PracticeResponse])

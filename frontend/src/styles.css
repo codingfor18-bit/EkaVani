@@ -102,3 +102,8 @@
   font-weight: 700;
   cursor: pointer;
 }
+.practice-field{display:block;margin:14px 0 12px;color:#596788;font-size:12px;font-weight:700}
+.practice-field select,.practice-field input[type=file]{display:block;width:100%;margin-top:7px;padding:10px;border:1px solid #dce3ef;border-radius:8px;background:#fff;color:#303b68;font:inherit;font-weight:400}
+.practice-field input[type=file]{font-size:12px}
+.practice-field small{display:block;margin-top:5px;color:#7d87a2;font-size:11px;font-weight:400;line-height:1.4}
+.upload-field{margin-top:16px;padding:13px;border:1px dashed #c9c2e9;border-radius:10px;background:#faf9ff}
