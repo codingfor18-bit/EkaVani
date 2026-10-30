@@ -292,6 +292,7 @@ return <div className="app">
         loading={loading}
         sentence={sentence}
         sentenceOptions={sentenceOptions}
+        sentencesLoading={sentencesLoading}
         practiceLevel={practiceLevel}
         setPracticeLevel={setPracticeLevel}
         setSentence={chooseSentence}
@@ -445,7 +446,7 @@ return <>
 </>
 }
 
-function Practice({recording,startRecording,stopRecording,analysis,loading,sentence,sentenceOptions,practiceLevel,setPracticeLevel,setSentence,uploadAudio,learnerRasa,setLearnerRasa,go}){
+function Practice({recording,startRecording,stopRecording,analysis,loading,sentence,sentenceOptions,sentencesLoading,practiceLevel,setPracticeLevel,setSentence,uploadAudio,learnerRasa,setLearnerRasa,go}){
 const levelSentences=sentenceOptions.filter(item=>item.level===practiceLevel);
 return <div className="practice-layout">
 
