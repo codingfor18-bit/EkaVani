@@ -21,6 +21,7 @@ const [emotion,setEmotion]=useState('Shanta (Calm)');
 const [learnerRasa,setLearnerRasa]=useState('');
 const [sentenceOptions,setSentenceOptions]=useState([]);
 const [practiceLevel,setPracticeLevel]=useState('A1');
+const [sentencesLoading,setSentencesLoading]=useState(true);
 const [sentence,setSentence]=useState(null);
 const [analysis,setAnalysis]=useState(null);
 const [loading,setLoading]=useState(false);
@@ -39,18 +40,31 @@ useEffect(()=>{
       setSentenceOptions(options);
       setSentence(options[0]||null);
     })
-    .catch(()=>setError('Could not load practice sentences.'));
+    .catch(()=>setError('Could not load practice sentences. Check that the current backend is running.'))
+    .finally(()=>setSentencesLoading(false));
 },[]);
 
 useEffect(()=>{
   if(!user?.id) return;
   try {
     const stored=localStorage.getItem(`ekavani_preferences_${user.id}`);
-    if(stored) setPreferences({...preferences,...JSON.parse(stored)});
+    if(stored){
+      const restored={...preferences,...JSON.parse(stored)};
+      setPreferences(restored);
+      setPracticeLevel(restored.targetLevel||'A1');
+    }
   } catch {
     setError('Saved preferences could not be loaded.');
   }
 },[user?.id]);
+
+useEffect(()=>{
+  if(!sentenceOptions.length) return;
+  if(sentence?.level!==practiceLevel){
+    setSentence(sentenceOptions.find(item=>item.level===practiceLevel)||null);
+    setAnalysis(null);
+  }
+},[practiceLevel,sentenceOptions]);
 
 useEffect(()=>{
   if(!user) return;
@@ -78,6 +92,7 @@ const go=p=>setPage(p);
 
 function savePreferences(next){
   setPreferences(next);
+  setPracticeLevel(next.targetLevel||'A1');
   if(user?.id) localStorage.setItem(`ekavani_preferences_${user.id}`,JSON.stringify(next));
 }
 
@@ -440,7 +455,7 @@ return <div className="practice-layout">
  <h2>Pronunciation Practice</h2>
 
  <label className="practice-field">
-   CEFR difficulty level
+   Custom difficulty group (A1 hardest - C2 easiest)
    <select value={practiceLevel} onChange={event=>{
      const level=event.target.value;
      setPracticeLevel(level);
@@ -451,12 +466,14 @@ return <div className="practice-layout">
  </label>
 
  <label className="practice-field">
-   Practice sentence ({levelSentences.length} available at {practiceLevel})
+   Practice sentence ({sentencesLoading?'loading':levelSentences.length?`${levelSentences.length} available at ${practiceLevel}`:`none loaded for ${practiceLevel}`})
    <select value={sentence?.id||''} onChange={event=>setSentence(levelSentences.find(item=>item.id===event.target.value)||null)}>
+     {levelSentences.length===0&&<option value="">No prompts returned by the connected backend</option>}
      {levelSentences.map(item=><option key={item.id} value={item.id}>{item.text}</option>)}
    </select>
    <small>{sentence?.focus}</small>
-   <small>CEFR-style practice prompts; these labels are guides, not a formal placement test.</small>
+   {levelSentences.length===0&&!sentencesLoading&&<small>Restart or redeploy the latest backend to load this level's prompts.</small>}
+   <small>Custom difficulty groups based on the supplied set; this is not the standard CEFR order or a placement test.</small>
  </label>
 
  <label className="practice-field">
@@ -676,9 +693,9 @@ function toggleGoal(goal){
 return <div className="settings-grid">
  <Card>
   <h3>Learning preferences</h3>
-  <label className="practice-field">Target level
+  <label className="practice-field">Target difficulty group (A1 hardest, C2 easiest)
    <select value={draft.targetLevel||'A2'} onChange={event=>{setDraft({...draft,targetLevel:event.target.value});setSaved(false);}}>
-    <option>A1</option><option>A2</option><option>B1</option><option>B2</option>
+    <option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option><option>C2</option>
    </select>
   </label>
   <label>Learning goals</label>

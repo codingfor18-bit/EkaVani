@@ -2,26 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
+from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Any
 
 
-PRACTICE_SENTENCES = [
-    {"id": "a1-introduction", "text": "Je m'appelle L?a et j'habite ? Lyon.", "focus": "Present-tense verbs and clear syllables", "level": "A1"},
-    {"id": "a1-directions", "text": "O? est la gare, s'il vous pla?t ?", "focus": "A simple question, liaison, and polite phrasing", "level": "A1"},
-    {"id": "a2-cafe", "text": "Je voudrais un caf?, s'il vous pla?t.", "focus": "French r and clear final vowels", "level": "A2"},
-    {"id": "a2-weekend", "text": "Hier, j'ai visit? le march? avec mon amie.", "focus": "Pass? compos? and connected speech", "level": "A2"},
-    {"id": "b1-habit", "text": "M?me si je suis parfois occup?, j'essaie de lire en fran?ais chaque soir.", "focus": "Concessive clause and phrase rhythm", "level": "B1"},
-    {"id": "b1-travel", "text": "J'aimerais visiter la Bretagne parce que j'aime la mer et les petits villages.", "focus": "Giving a reason and linking a longer phrase", "level": "B1"},
-    {"id": "b2-train", "text": "Bien que le trajet soit plus long, j'ai choisi le train afin de r?duire mon impact environnemental.", "focus": "Subjunctive after bien que and formal vocabulary", "level": "B2"},
-    {"id": "b2-plans", "text": "Si j'avais su que la r?union serait report?e, j'aurais organis? ma journ?e autrement.", "focus": "Past conditional and a multi-clause sentence", "level": "B2"},
-    {"id": "c1-remote-work", "text": "? mesure que le t?l?travail se g?n?ralise, les entreprises doivent repenser la mani?re dont elles pr?servent la coh?sion des ?quipes.", "focus": "Nuanced argument and nested relative clause", "level": "C1"},
-    {"id": "c1-policy", "text": "Quoiqu'elle ait suscit? des r?serves au d?part, cette mesure s'est r?v?l?e efficace d?s lors que ses objectifs ont ?t? clairement d?finis.", "focus": "Subjunctive, formal connectors, and long breath groups", "level": "C1"},
-    {"id": "c2-nuance", "text": "? rebours de l'id?e selon laquelle toute innovation serait n?cessairement synonyme de progr?s, encore faut-il en examiner les cons?quences ? long terme.", "focus": "Nuanced argument, inversion, and complex phrasing", "level": "C2"},
-    {"id": "c2-qualification", "text": "Pour contestable que soit cette interpr?tation, elle ne saurait ?tre ?cart?e sans que l'on ait confront? ses pr?suppos?s aux faits disponibles.", "focus": "Inversion with subjunctive and precise argumentation", "level": "C2"},
-]
+PRACTICE_DATA_FILE = Path(__file__).resolve().parent / "data" / "french_practice_sentences.json"
+with PRACTICE_DATA_FILE.open(encoding="utf-8") as practice_file:
+    PRACTICE_SENTENCES: list[dict[str, str]] = json.load(practice_file)
 
 PRACTICE_LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2")
 

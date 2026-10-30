@@ -27,11 +27,15 @@ from app.learning import (
 
 
 class SpeechAssessmentTests(unittest.TestCase):
-    def test_practice_prompts_cover_each_cefr_level(self):
+    def test_practice_prompts_cover_custom_difficulty_groups(self):
         self.assertEqual({item["level"] for item in PRACTICE_SENTENCES}, set(PRACTICE_LEVELS))
-        self.assertEqual(len(PRACTICE_SENTENCES), 12)
+        self.assertEqual(len(PRACTICE_SENTENCES), 60)
         for level in PRACTICE_LEVELS:
-            self.assertEqual(sum(item["level"] == level for item in PRACTICE_SENTENCES), 2)
+            self.assertEqual(sum(item["level"] == level for item in PRACTICE_SENTENCES), 10)
+        source_mapping = {"A1": "C2", "A2": "C1", "B1": "B2", "B2": "B1", "C1": "A2", "C2": "A1"}
+        for level, source_level in source_mapping.items():
+            rows = [item for item in PRACTICE_SENTENCES if item["level"] == level]
+            self.assertTrue(all(item["source_level"] == source_level for item in rows))
 
     def test_exact_match_is_case_punctuation_and_accent_insensitive(self):
         result = word_errors("Je voudrais un café, s'il vous plaît.", "JE VOUDRAIS UN cafe s'il vous plait")
@@ -172,8 +176,11 @@ class PracticeApiIntegrationTests(unittest.TestCase):
         self.assertEqual(progress.status_code, 200)
         self.assertEqual(progress.json()["session_count"], 1)
         self.assertEqual(progress.json()["latest_score"], 100)
-        self.assertEqual(self.client.get("/api/v1/practice/sentences").status_code, 200)
-        self.assertEqual(len(self.client.get("/api/v1/practice/sentences?level=c1").json()), 2)
+        all_sentences = self.client.get("/api/v1/practice/sentences")
+        self.assertEqual(all_sentences.status_code, 200)
+        self.assertEqual(len(all_sentences.json()), 60)
+        self.assertEqual(len(self.client.get("/api/v1/practice/sentences?level=c1").json()), 10)
+        self.assertEqual(len(self.client.get("/api/v1/practice/sentences?level=C2").json()), 10)
         self.assertEqual(self.client.get("/api/v1/practice/sentences?level=C3").status_code, 422)
         self.assertFalse(os.path.exists(transcribe.call_args.args[0]))
 

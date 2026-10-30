@@ -38,7 +38,7 @@ Open the Vite URL printed in the terminal. Vite proxies API requests to `http://
 
 ## French practice levels and audio
 
-Open **Practice**, choose one of the six levels, then choose a sentence. The library has two prompts at each level: A1, A2, B1, B2, C1, and C2. The prompts are CEFR-style examples, not a formal proficiency placement test.
+Open **Practice**, choose one of the six custom difficulty groups, then choose a sentence. The checked-in French practice dataset at `backend/app/data/french_practice_sentences.json` has 10 prompts per group. It uses the order requested for this app: **A1 is hardest, then A2, B1, B2, C1, and C2 is easiest**. This reverses standard CEFR ordering. The source text you supplied labels A1 as beginner and C2 as mastery, so its sentences are remapped: source C2 sentences appear under app A1; source A1 sentences appear under app C2. The API also accepts a level filter, for example `/api/v1/practice/sentences?level=C2`.
 
 For the selected sentence, record with the microphone or upload one audio clip (`.wav`, `.mp3`, `.m4a`, `.ogg`, or `.webm`) at a time. You can submit multiple attempts and try different sentences. Each attempt is analyzed and saved separately in Feedback History and My Progress. Audio is limited to 15 MB per attempt and is deleted from the server after analysis.
 
