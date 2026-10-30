@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from datetime import datetime
@@ -78,6 +79,7 @@ class PracticeResponse(BaseModel):
 
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+ASR_BENCHMARK_FILE = Path(__file__).resolve().parent / "data" / "asr_benchmark.json"
 
 
 def settings_origins() -> list[str]:
@@ -320,6 +322,13 @@ def practice_sentences(level: str | None = None):
     if normalized_level not in PRACTICE_LEVELS:
         raise HTTPException(status_code=422, detail="Level must be A1, A2, B1, B2, C1, or C2")
     return [sentence for sentence in PRACTICE_SENTENCES if sentence["level"] == normalized_level]
+
+
+@app.get("/api/v1/evaluation/asr")
+def asr_evaluation():
+    if not ASR_BENCHMARK_FILE.is_file():
+        raise HTTPException(status_code=503, detail="No French corpus evaluation report is available")
+    return json.loads(ASR_BENCHMARK_FILE.read_text(encoding="utf-8"))
 
 
 @app.get("/api/v1/practice/history", response_model=list[PracticeResponse])

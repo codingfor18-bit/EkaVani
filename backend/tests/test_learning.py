@@ -44,12 +44,16 @@ class SpeechAssessmentTests(unittest.TestCase):
         self.assertEqual(result["word_match_score"], 100)
 
     def test_alignment_reports_substitutions_omissions_and_insertions(self):
-        result = word_errors("Je voudrais un café", "Je prends café maintenant")
+        result = word_errors("Je veux un café aujourd'hui", "Je prends café aujourd'hui demain")
         self.assertTrue(result["substitutions"])
         self.assertTrue(result["omissions"])
         self.assertTrue(result["insertions"])
-        self.assertEqual(result["word_error_rate"], 0.75)
-        self.assertEqual(result["word_match_score"], 25)
+        self.assertEqual(result["word_error_rate"], 0.6)
+        self.assertEqual(result["word_match_score"], 40)
+        self.assertEqual(result["word_precision"], 60)
+        self.assertEqual(result["word_recall"], 60)
+        self.assertEqual(result["word_f1"], 60)
+        self.assertGreater(result["character_error_rate"], 0)
 
     def test_timing_metrics_are_descriptors_not_a_fluency_grade(self):
         result = assess_speech(
@@ -176,12 +180,20 @@ class PracticeApiIntegrationTests(unittest.TestCase):
         self.assertEqual(progress.status_code, 200)
         self.assertEqual(progress.json()["session_count"], 1)
         self.assertEqual(progress.json()["latest_score"], 100)
+        self.assertEqual(saved["assessment"]["word_precision"], 100)
+        self.assertEqual(saved["assessment"]["word_recall"], 100)
+        self.assertEqual(saved["assessment"]["word_f1"], 100)
+        self.assertGreaterEqual(saved["assessment"]["character_error_rate"], 0)
         all_sentences = self.client.get("/api/v1/practice/sentences")
         self.assertEqual(all_sentences.status_code, 200)
         self.assertEqual(len(all_sentences.json()), 60)
         self.assertEqual(len(self.client.get("/api/v1/practice/sentences?level=c1").json()), 10)
         self.assertEqual(len(self.client.get("/api/v1/practice/sentences?level=C2").json()), 10)
         self.assertEqual(self.client.get("/api/v1/practice/sentences?level=C3").status_code, 422)
+        benchmark = self.client.get("/api/v1/evaluation/asr")
+        self.assertEqual(benchmark.status_code, 200)
+        self.assertEqual(benchmark.json()["sample_size"], 25)
+        self.assertGreater(benchmark.json()["word_f1"], 0)
         self.assertFalse(os.path.exists(transcribe.call_args.args[0]))
 
 

@@ -28,6 +28,7 @@ const [loading,setLoading]=useState(false);
 const [error,setError]=useState('');
 const [history,setHistory]=useState([]);
 const [progress,setProgress]=useState(null);
+const [asrBenchmark,setAsrBenchmark]=useState(null);
 const [preferences,setPreferences]=useState({targetLevel:'A2',feedbackStyle:'adaptive',goals:['pronunciation']});
 
 const mediaRecorder=useRef(null);
@@ -42,6 +43,13 @@ useEffect(()=>{
     })
     .catch(()=>setError('Could not load practice sentences. Check that the current backend is running.'))
     .finally(()=>setSentencesLoading(false));
+},[]);
+
+useEffect(()=>{
+  fetch(`${API}/api/v1/evaluation/asr`)
+    .then(res=>res.ok?res.json():Promise.reject())
+    .then(setAsrBenchmark)
+    .catch(()=>setAsrBenchmark(null));
 },[]);
 
 useEffect(()=>{
@@ -312,7 +320,7 @@ return <div className="app">
     }
 
     {page==='settings'&&
-      <Settings logout={logout} preferences={preferences} onSave={savePreferences}/>
+      <Settings logout={logout} preferences={preferences} onSave={savePreferences} benchmark={asrBenchmark}/>
     }
 
   </main>
@@ -528,11 +536,16 @@ return <div className="practice-layout">
      <p>{analysis.feedback_type} | {analysis.feedback_timing} ? {analysis.detected_rasa}</p>
      <p>{analysis.feedback}</p>
      <ul>
+       <li>Word precision: {analysis.assessment?.word_precision??0}%</li>
+       <li>Word recall: {analysis.assessment?.word_recall??0}%</li>
+       <li>Word F1: {analysis.assessment?.word_f1??0}%</li>
        <li>Word error rate: {Math.round((analysis.assessment?.word_error_rate||0)*100)}%</li>
+       <li>Character error rate: {Math.round((analysis.assessment?.character_error_rate||0)*100)}%</li>
        <li>Speaking rate: {analysis.assessment?.speaking_rate_words_per_minute??'n/a'} words/minute</li>
        <li>Pauses over 0.7s: {analysis.assessment?.pause_count_over_0_7s??'n/a'}</li>
        <li>Final pitch contour: {analysis.assessment?.final_pitch_contour||analysis.assessment?.pitch_analysis||'not measured'}</li>
      </ul>
+     <p>Text metrics compare the Whisper transcript with the selected dataset sentence. They do not measure phoneme or accent accuracy.</p>
      <p><strong>Retrieved guidance:</strong> {(analysis.assessment?.feedback_sources||[]).join(', ')||'general practice'}</p>
    </div>
  }
@@ -671,6 +684,7 @@ return <Card className="history">
    <div className="hist-main">
      <b>{record.sentence}</b>
      <small>{new Date(record.created_at).toLocaleString()} | Heard: {record.transcribed_text||'?'}</small>
+     <small>Word F1: {record.assessment?.word_f1??'n/a'}% | WER: {Math.round((record.assessment?.word_error_rate||0)*100)}%</small>
      <p>{record.feedback}</p>
      <small>Next: {record.next_activity}</small>
    </div>
@@ -680,7 +694,7 @@ return <Card className="history">
 </Card>
 }
 
-function Settings({logout,preferences,onSave}){
+function Settings({logout,preferences,onSave,benchmark}){
 const [draft,setDraft]=useState(preferences);
 const [saved,setSaved]=useState(false);
 useEffect(()=>setDraft(preferences),[preferences]);
@@ -719,6 +733,15 @@ return <div className="settings-grid">
   <div className="setting-item"><span>Emotion estimate</span><b>4 model labels</b></div>
   <div className="setting-item"><span>Navarasa adaptations</span><b>9 available</b></div>
   <div className="setting-item"><span>Feedback grounding</span><b>Retrieved rules + templates</b></div>
+  <div className="privacy">
+   <b>Whisper evaluation on the French audio corpus</b>
+   {benchmark ? <>
+    <p>{benchmark.model}, {benchmark.sample_size} sampled clips from {benchmark.dataset_clips} corpus clips, {benchmark.speaker_count} speakers (seed {benchmark.sample_seed}).</p>
+    <p>Word precision {Math.round(benchmark.word_precision*1000)/10}% | recall {Math.round(benchmark.word_recall*1000)/10}% | F1 {Math.round(benchmark.word_f1*1000)/10}%</p>
+    <p>WER {Math.round(benchmark.word_error_rate*1000)/10}% (95% CI {Math.round(benchmark.word_error_ci_95[0]*1000)/10}-{Math.round(benchmark.word_error_ci_95[1]*1000)/10}%) | CER {Math.round(benchmark.character_error_rate*1000)/10}%</p>
+   </> : <p>No corpus evaluation report is loaded. Run the French audio evaluation script to generate one.</p>}
+   <p>These corpus ASR metrics compare recognized text with reference transcripts. They are not phoneme, accent, human intelligibility, or emotion-classification scores.</p>
+  </div>
   <div className="privacy">
    <b>Measurement limits</b>
    <p>The word-match score is not a phoneme score. Pitch and ASR confidence are descriptive proxies; this prototype has no validated prosody or human intelligibility scoring.</p>

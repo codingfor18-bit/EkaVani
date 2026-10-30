@@ -1,0 +1,21 @@
+{
+  "dataset": "french_dataset_50mb",
+  "dataset_clips": 1262,
+  "sample_size": 25,
+  "speaker_count": 25,
+  "model": "Whisper base",
+  "package_version": "20250625",
+  "sample_seed": 42,
+  "bootstrap_replicates": 10000,
+  "word_error_rate": 0.39906103286384975,
+  "word_precision": 0.6363636363636364,
+  "word_recall": 0.6572769953051644,
+  "word_f1": 0.6466512702078522,
+  "character_error_rate": 0.1640552995391705,
+  "word_error_ci_95": [
+    0.3317972350230415,
+    0.4708525621489834
+  ],
+  "evaluated_at": "2026-10-30T02:05:15.619370+00:00",
+  "scope": "ASR transcript text comparison with corpus references; not phoneme, accent, or emotion accuracy."
+}

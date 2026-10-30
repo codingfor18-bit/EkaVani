@@ -62,7 +62,7 @@ The Blueprint uses Render's free web-service plan, which may not have enough mem
 ## How speech assessment and feedback work
 
 - **ASR:** Whisper transcribes French audio.
-- **Transcript comparison:** Word alignment reports substitutions, omissions, insertions, word error rate, and a word-match estimate. That score measures recognized words, not phoneme-level pronunciation.
+- **Transcript comparison:** Word alignment reports substitutions, omissions, insertions, word error rate (WER), character error rate (CER), and word precision, recall, and F1. Per-attempt metrics compare Whisper's transcript to the selected practice sentence. They measure text recognition, not phoneme-level pronunciation or accent quality.
 - **Speech descriptors:** Word timing, pauses, pitch movement, and Whisper confidence are reported as observable features. They are not validated fluency, prosody, or human intelligibility scores.
 - **Emotion:** The SUPERB speech-emotion checkpoint predicts four labels (happy, angry, sad, neutral). It does not classify all nine Navarasas. Learners can self-select one of nine rasa profiles to adapt feedback tone and next-practice suggestions.
 - **Retrieval-grounded feedback:** The backend ranks a curated French pronunciation knowledge base using the selected sentence and aligned word errors, then uses retrieved guidance in deterministic feedback templates. This is not LLM-generated feedback.
@@ -82,10 +82,10 @@ The API integration test uses a stubbed speech recognizer and a temporary SQLite
 
 ## Exploratory French ASR evaluation
 
-`whisper_cv_eval_seed42.py` runs a 25-clip French ASR evaluation with a fixed seed and utterance-level bootstrap confidence interval. The raw audio subset is not committed; obtain the French clips and `metadata.csv`, then run:
+The local sibling folder `../french_dataset_50mb` contains 1,262 French MP3 clips with reference sentences in `metadata.csv`; audio is kept outside Git. `whisper_cv_eval_seed42.py` evaluates a seeded sample against those references, calculates WER, CER, micro word precision/recall/F1, and a bootstrap WER confidence interval, and writes the latest summary to `backend/app/data/asr_benchmark.json`. The Settings page displays that corpus benchmark. Run from the project root:
 
 ```powershell
 python whisper_cv_eval_seed42.py --dataset-dir ..\french_dataset_50mb
 ```
 
-Recorded pilot: `openai-whisper` 20250625, Whisper `base`, CPU, French decoding, beam size 5; seed 42; 10,000 bootstrap resamples. The supplied French folder contained 1,262 audio files and Common Voice-style metadata; its exact Common Voice release was not supplied. The random 25-clip sample contained 25 speakers and produced WER 40.17% (92 errors / 229 reference words), bootstrap 95% CI [32.62%, 48.47%]. A separate five-clip pilot produced WER 26.19%, CER 10.27%, and one exact transcript. These small exploratory results are not emotion-recognition or learner-outcome results. No emotion labels were supplied, so emotion accuracy and F1 are not reported.
+Latest recorded run: `openai-whisper` 20250625, Whisper `base`, CPU, French decoding, beam size 5; seed 42; 10,000 bootstrap resamples. On 25 randomly selected clips from 25 speakers, WER was 39.91% (85 errors / 213 reference words; bootstrap 95% CI 33.18%-47.09%), micro word precision 63.64%, recall 65.73%, F1 64.67%, and CER 16.41%. This is a small ASR transcript benchmark, not a learner pronunciation score or emotion-recognition score. The dataset has no emotion labels, so emotion-classification F1 cannot be calculated.

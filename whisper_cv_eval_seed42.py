@@ -5,34 +5,18 @@ Example (PowerShell, from the EkaVani-final project root):
 """
 import argparse
 import csv
+import json
 import random
-import re
-import unicodedata
 from importlib.metadata import version
 from pathlib import Path
+import sys
+from datetime import datetime, timezone
 
 import numpy as np
 import whisper
 
-
-def normalize(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text).casefold()
-    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
-    return " ".join(text.split())
-
-
-def edit_distance(reference: list[str], hypothesis: list[str]) -> int:
-    previous = list(range(len(hypothesis) + 1))
-    for i, ref_token in enumerate(reference, 1):
-        current = [i]
-        for j, hyp_token in enumerate(hypothesis, 1):
-            current.append(min(
-                current[-1] + 1,
-                previous[j] + 1,
-                previous[j - 1] + (ref_token != hyp_token),
-            ))
-        previous = current
-    return previous[-1]
+sys.path.insert(0, str(Path(__file__).resolve().parent / "backend"))
+from app.learning import word_errors
 
 
 def main() -> None:
@@ -42,6 +26,11 @@ def main() -> None:
     parser.add_argument("--sample-size", type=int, default=25)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--bootstrap-replicates", type=int, default=10_000)
+    parser.add_argument(
+        "--report-json",
+        type=Path,
+        default=Path(__file__).resolve().parent / "backend" / "app" / "data" / "asr_benchmark.json",
+    )
     args = parser.parse_args()
 
     with (args.dataset_dir / "metadata.csv").open(encoding="utf-8-sig", newline="") as f:
@@ -52,11 +41,12 @@ def main() -> None:
 
     model = whisper.load_model("base", device="cpu")
     errors, reference_lengths = [], []
+    word_true_positives = word_false_positives = word_false_negatives = 0
+    character_edits = reference_characters = 0
     for row in sample:
         audio_path = args.dataset_dir / row["filename"]
         if not audio_path.is_file():
             raise SystemExit(f"Missing audio file: {audio_path}")
-        reference = normalize(row["sentence"]).split()
         hypothesis_text = model.transcribe(
             str(audio_path),
             language="fr",
@@ -66,11 +56,20 @@ def main() -> None:
             condition_on_previous_text=False,
             verbose=False,
         )["text"]
-        hypothesis = normalize(hypothesis_text).split()
-        errors.append(edit_distance(reference, hypothesis))
-        reference_lengths.append(len(reference))
+        metrics = word_errors(row["sentence"], hypothesis_text)
+        errors.append(metrics["word_error_count"])
+        reference_lengths.append(metrics["reference_words"])
+        word_true_positives += metrics["word_true_positives"]
+        word_false_positives += metrics["word_false_positives"]
+        word_false_negatives += metrics["word_false_negatives"]
+        character_edits += metrics["character_edits"]
+        reference_characters += metrics["reference_characters"]
 
     wer = sum(errors) / sum(reference_lengths)
+    precision = word_true_positives / max(word_true_positives + word_false_positives, 1)
+    recall = word_true_positives / max(word_true_positives + word_false_negatives, 1)
+    f1 = 2 * precision * recall / max(precision + recall, 1e-12)
+    cer = character_edits / max(reference_characters, 1)
     rng = np.random.default_rng(args.seed)
     bootstrap_wers = []
     for _ in range(args.bootstrap_replicates):
@@ -84,7 +83,31 @@ def main() -> None:
     print(f"model=Whisper base; package_version={version('openai-whisper')}")
     print(f"sample_seed={args.seed}; bootstrap_seed={args.seed}; bootstrap_n={args.bootstrap_replicates}")
     print(f"word_errors={sum(errors)} reference_words={sum(reference_lengths)} WER={wer:.6f} bootstrap_95_CI=[{low:.6f}, {high:.6f}]")
+    print(f"micro_word_precision={precision:.6f} micro_word_recall={recall:.6f} micro_word_F1={f1:.6f}")
+    print(f"character_edits={character_edits} reference_characters={reference_characters} CER={cer:.6f}")
     print("sampled_files=" + ",".join(row["filename"] for row in sample))
+
+    report = {
+        "dataset": args.dataset_dir.name,
+        "dataset_clips": len(rows),
+        "sample_size": len(sample),
+        "speaker_count": len({row["client_id"] for row in sample}),
+        "model": "Whisper base",
+        "package_version": version("openai-whisper"),
+        "sample_seed": args.seed,
+        "bootstrap_replicates": args.bootstrap_replicates,
+        "word_error_rate": wer,
+        "word_precision": precision,
+        "word_recall": recall,
+        "word_f1": f1,
+        "character_error_rate": cer,
+        "word_error_ci_95": [float(low), float(high)],
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        "scope": "ASR transcript text comparison with corpus references; not phoneme, accent, or emotion accuracy.",
+    }
+    args.report_json.parent.mkdir(parents=True, exist_ok=True)
+    args.report_json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"report_json={args.report_json}")
 
 
 if __name__ == "__main__":

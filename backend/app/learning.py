@@ -6,7 +6,6 @@ import json
 import re
 import unicodedata
 from pathlib import Path
-from difflib import SequenceMatcher
 from typing import Any
 
 
@@ -166,39 +165,116 @@ def _fold(value: str) -> str:
     return "".join(char for char in value if not unicodedata.combining(char))
 
 
+def _alignment(expected: list[str], heard: list[str]) -> list[tuple[str, str | None, str | None]]:
+    """Return a minimum-edit token alignment for interpretable error metrics."""
+    rows, columns = len(expected) + 1, len(heard) + 1
+    costs = [[0] * columns for _ in range(rows)]
+    for i in range(rows):
+        costs[i][0] = i
+    for j in range(columns):
+        costs[0][j] = j
+    for i in range(1, rows):
+        for j in range(1, columns):
+            costs[i][j] = min(
+                costs[i - 1][j] + 1,
+                costs[i][j - 1] + 1,
+                costs[i - 1][j - 1] + (expected[i - 1] != heard[j - 1]),
+            )
+
+    actions: list[tuple[str, str | None, str | None]] = []
+    i, j = len(expected), len(heard)
+    while i or j:
+        if i and j and expected[i - 1] == heard[j - 1] and costs[i][j] == costs[i - 1][j - 1]:
+            actions.append(("equal", expected[i - 1], heard[j - 1]))
+            i -= 1
+            j -= 1
+        elif i and j and costs[i][j] == costs[i - 1][j - 1] + 1:
+            actions.append(("replace", expected[i - 1], heard[j - 1]))
+            i -= 1
+            j -= 1
+        elif i and costs[i][j] == costs[i - 1][j] + 1:
+            actions.append(("delete", expected[i - 1], None))
+            i -= 1
+        else:
+            actions.append(("insert", None, heard[j - 1]))
+            j -= 1
+    actions.reverse()
+    return actions
+
+
+def _edit_distance(reference: list[str], hypothesis: list[str]) -> int:
+    previous = list(range(len(hypothesis) + 1))
+    for i, ref_token in enumerate(reference, 1):
+        current = [i]
+        for j, hyp_token in enumerate(hypothesis, 1):
+            current.append(min(
+                current[-1] + 1,
+                previous[j] + 1,
+                previous[j - 1] + (ref_token != hyp_token),
+            ))
+        previous = current
+    return previous[-1]
+
+
 def word_errors(reference: str, transcript: str) -> dict[str, Any]:
-    """Return transparent token-level substitutions, omissions, and insertions."""
+    """Compare Whisper words with the selected prompt using minimum-edit alignment."""
     expected_display = normalize_text(reference).split()
     heard_display = normalize_text(transcript).split()
     expected = [_fold(word) for word in expected_display]
     heard = [_fold(word) for word in heard_display]
-    matcher = SequenceMatcher(a=expected, b=heard, autojunk=False)
     substitutions: list[dict[str, Any]] = []
     omissions: list[dict[str, Any]] = []
     insertions: list[dict[str, Any]] = []
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "replace":
-            width = min(i2 - i1, j2 - j1)
-            for offset in range(width):
-                substitutions.append({"expected": expected_display[i1 + offset], "heard": heard_display[j1 + offset]})
-            omissions.extend({"word": word} for word in expected_display[i1 + width:i2])
-            insertions.extend({"word": word} for word in heard_display[j1 + width:j2])
+    correct_words = 0
+    expected_index = 0
+    heard_index = 0
+    for tag, expected_word, heard_word in _alignment(expected, heard):
+        if tag == "equal":
+            correct_words += 1
+            expected_index += 1
+            heard_index += 1
+        elif tag == "replace":
+            substitutions.append({"expected": expected_display[expected_index], "heard": heard_display[heard_index]})
+            expected_index += 1
+            heard_index += 1
         elif tag == "delete":
-            omissions.extend({"word": word} for word in expected_display[i1:i2])
+            omissions.append({"word": expected_display[expected_index]})
+            expected_index += 1
         elif tag == "insert":
-            insertions.extend({"word": word} for word in heard_display[j1:j2])
+            insertions.append({"word": heard_display[heard_index]})
+            heard_index += 1
 
     error_count = len(substitutions) + len(omissions) + len(insertions)
     word_count = len(expected)
     wer = error_count / max(word_count, 1)
+    false_positives = len(substitutions) + len(insertions)
+    false_negatives = len(substitutions) + len(omissions)
+    precision = correct_words / (correct_words + false_positives) if correct_words + false_positives else 0.0
+    recall = correct_words / (correct_words + false_negatives) if correct_words + false_negatives else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    reference_chars = list(normalize_text(reference).replace(" ", ""))
+    spoken_chars = list(normalize_text(transcript).replace(" ", ""))
+    character_edits = _edit_distance(reference_chars, spoken_chars)
+    character_error_rate = character_edits / max(len(reference_chars), 1)
     return {
         "reference_words": word_count,
         "spoken_words": len(heard),
+        "word_true_positives": correct_words,
+        "word_false_positives": false_positives,
+        "word_false_negatives": false_negatives,
+        "word_error_count": error_count,
         "substitutions": substitutions,
         "omissions": omissions,
         "insertions": insertions,
         "word_error_rate": round(wer, 4),
         "word_match_score": round(max(0.0, 100.0 * (1.0 - wer)), 1),
+        "word_precision": round(precision * 100, 1),
+        "word_recall": round(recall * 100, 1),
+        "word_f1": round(f1 * 100, 1),
+        "character_edits": character_edits,
+        "reference_characters": len(reference_chars),
+        "character_error_rate": round(character_error_rate, 4),
+        "character_match_score": round(max(0.0, 100.0 * (1.0 - character_error_rate)), 1),
         "exact_match": expected == heard and bool(expected),
     }
 
