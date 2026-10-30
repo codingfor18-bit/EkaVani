@@ -1,78 +1,91 @@
 # EkaVani
 
-EkaVani is a French speaking-practice prototype with a FastAPI backend and React frontend. Accounts and analyzed practice sessions are stored in the configured database. Uploaded recordings are temporary and removed after analysis.
+EkaVani is a French speaking-practice app with a React frontend and FastAPI backend. It transcribes French audio, compares the transcript with a practice sentence, retrieves pronunciation guidance, and stores practice results in PostgreSQL.
+
+## Current project status
+
+- The app is configured to use Neon PostgreSQL through `DATABASE_URL`. The backend health check and a practice-history save/read round trip were verified against Neon.
+- The deployment configuration and app changes are pushed to the `deploy/render-neon` branch of [codingfor18-bit/EkaVani](https://github.com/codingfor18-bit/EkaVani).
+- A successful Render deployment has not yet been confirmed. The Docker image has not been locally built because Docker was unavailable in the development environment.
 
 ## Run locally on Windows
 
-Open PowerShell in `EkaVani-final`.
+Run commands from the repository root unless a command says otherwise. The backend loads `DATABASE_URL` from the root `.env.local` created by Neon. Keep this file private and out of Git.
 
-### Backend
+### Install and start the backend
 
 ```powershell
-cd backend
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-pip install -r requirements-speech.txt
-uvicorn app.main:app --reload --port 8000
+py -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+backend\.venv\Scripts\python.exe -m pip install -r backend\requirements-speech.txt
+$env:PYTHONPATH = 'backend'
+backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
-The first speech analysis may download the Whisper and emotion models. Install FFmpeg and make sure `ffmpeg` is on PATH for Whisper audio decoding. The container installs these speech packages and FFmpeg as well.
+Install FFmpeg and ensure `ffmpeg` is on `PATH`. Whisper and the emotion model may download their model weights on first use. Check the API at `http://127.0.0.1:8000/health` and its documentation at `http://127.0.0.1:8000/docs`.
 
-Check `http://127.0.0.1:8000/health` and API docs at `http://127.0.0.1:8000/docs`.
+### Start the frontend
 
-### Frontend
-
-In another PowerShell window:
+In a second PowerShell window:
 
 ```powershell
 cd frontend
-npm install
-npm run dev
+npm.cmd ci
+npm.cmd run dev
 ```
 
-Open the Vite URL printed in the terminal. During local development, Vite proxies API requests to `http://127.0.0.1:8000`. Set `VITE_API_URL` in `frontend/.env` only when the frontend and backend are hosted separately.
+Open the Vite URL printed in the terminal. Vite proxies API requests to `http://127.0.0.1:8000`. The production build is served by FastAPI from the same origin.
 
-## Database configuration
+## French practice levels and audio
 
-For local experiments without a configured server, the app falls back to `sqlite:///./ekavani.db`. The hosted Render service requires `DATABASE_URL` and uses the Neon PostgreSQL connection string; it fails at startup if the variable is missing. For PostgreSQL, set `DATABASE_URL`, for example:
+Open **Practice**, choose one of the six levels, then choose a sentence. The library has two prompts at each level: A1, A2, B1, B2, C1, and C2. The prompts are CEFR-style examples, not a formal proficiency placement test.
 
-```text
-postgresql+psycopg://user:password@localhost:5432/ekavani
-```
+For the selected sentence, record with the microphone or upload one audio clip (`.wav`, `.mp3`, `.m4a`, `.ogg`, or `.webm`) at a time. You can submit multiple attempts and try different sentences. Each attempt is analyzed and saved separately in Feedback History and My Progress. Audio is limited to 15 MB per attempt and is deleted from the server after analysis.
 
-Copy `backend/.env.example` to `backend/.env` and set environment variables in your shell or hosting service. Do not use the example JWT key for deployment. The app currently creates tables on startup; use a migration tool before changing the deployed schema.
+## Database and secrets
 
-## Deploy the website online
+The app reads `DATABASE_URL` from the environment, root `.env.local`, root `.env`, or `backend/.env`. The deployed service requires `DATABASE_URL` and is configured for Neon PostgreSQL. It fails at startup if the deployment has no database URL. When a URL is configured, account and practice data go to that database; SQLite is only a fallback for local development without a configured database.
 
-The repository includes a Render Blueprint and Dockerfile that serve the built React site and FastAPI API from one URL. To deploy it:
+Do not commit `.env.local`, database credentials, or JWT secrets. Render generates `JWT_SECRET_KEY` from `render.yaml`. The app creates tables on startup and includes a small compatibility update for the assessment JSON column; use a migration tool for future schema changes.
 
-1. Push this project to GitHub and connect the repository in Render with **New → Blueprint**.
-2. Select the `render.yaml` Blueprint and create the `ekavani` service in Singapore.
-3. When Render asks for `DATABASE_URL`, enter the pooled Neon `DATABASE_URL` from the project root `.env.local`. Render generates `JWT_SECRET_KEY` for the hosted app. Never commit `.env.local` or paste its value into source code.
-4. Wait for the service health check to pass, then open its `onrender.com` URL.
+## Deploy to Render
 
-The app stores account and practice data in Neon; it does not use SQLite when `DATABASE_URL` is set. The free Render web service sleeps after 15 minutes without traffic, so its first request after sleeping can take longer. The Docker image includes Whisper, the four-label SUPERB emotion model dependencies, FFmpeg, and pitch-analysis dependencies. Speech model weights download on first use and require sufficient memory; the free web-service plan may not have enough memory for both models, so verify the live audio endpoint after deployment and use a larger instance if it runs out of memory.
+The repository includes `render.yaml` and a Dockerfile that builds the React site and serves it with FastAPI. To deploy:
 
-## Scope and limitations
+1. In Render, connect the GitHub repository and select branch `deploy/render-neon`.
+2. Create the service using the repository's Blueprint (`render.yaml`).
+3. Set the `DATABASE_URL` secret to the pooled Neon connection string. Do this in Render's environment settings; never commit or paste the value into source files. Render generates the JWT secret.
+4. Wait for the `/health` check, open the site URL, then try an audio upload and confirm it appears in Feedback History.
 
-Practice history and progress are user-specific and stored in the configured database. The practice library includes two French prompts each at A1, A2, B1, B2, C1, and C2. These are CEFR-style examples, not a formally validated placement test. Learners may record or upload one audio clip for the selected sentence; each submitted attempt is saved separately. Speech assessment uses French Whisper transcription and token-level word error alignment; the displayed word-match estimate is not phoneme-level pronunciation assessment. Timing, pitch movement, and Whisper confidence are observable proxies, not validated fluency, prosody, or human intelligibility scores. The SUPERB emotion checkpoint predicts four labels (happy, angry, sad, neutral), not all nine Navarasas. Learners can self-select one of nine rasa profiles, which changes feedback tone and next-practice suggestions. The feedback pipeline ranks a curated French-pronunciation knowledge base against the target and aligned word errors, then uses retrieved notes in deterministic feedback templates. It is retrieval-grounded feedback, not LLM-generated prose. Preferences remain in the learner's browser; account and practice data are saved in the database.
+The Blueprint uses Render's free web-service plan, which may not have enough memory for Whisper and the emotion model together. Speech weights download on first use, and the free service may sleep when idle. If model inference runs out of memory on Render, use an instance with more memory. Docker was not available locally, so the container build still needs verification by Render.
 
-Run the focused backend evaluation and integration suite from the project root:
+## How speech assessment and feedback work
+
+- **ASR:** Whisper transcribes French audio.
+- **Transcript comparison:** Word alignment reports substitutions, omissions, insertions, word error rate, and a word-match estimate. That score measures recognized words, not phoneme-level pronunciation.
+- **Speech descriptors:** Word timing, pauses, pitch movement, and Whisper confidence are reported as observable features. They are not validated fluency, prosody, or human intelligibility scores.
+- **Emotion:** The SUPERB speech-emotion checkpoint predicts four labels (happy, angry, sad, neutral). It does not classify all nine Navarasas. Learners can self-select one of nine rasa profiles to adapt feedback tone and next-practice suggestions.
+- **Retrieval-grounded feedback:** The backend ranks a curated French pronunciation knowledge base using the selected sentence and aligned word errors, then uses retrieved guidance in deterministic feedback templates. This is not LLM-generated feedback.
+- **Learning history:** Accounts, sessions, feedback, and progress are stored in the configured database. Learner preferences are stored in that learner's browser.
+
+## Run backend tests and frontend build
+
+From the repository root:
 
 ```powershell
 $env:PYTHONPATH = 'backend'
-.\backend\.venv\Scripts\python.exe -m unittest discover -s backend/tests -v
+backend\.venv\Scripts\python.exe -m unittest discover -s backend/tests -v
+npm.cmd run build
 ```
 
-The API integration test uses a stubbed speech recognizer and a temporary SQLite test database. A separate live smoke check was also run against Neon with the cached Whisper and SER checkpoints; its temporary test account and practice record were deleted afterward. The smoke recording was silence, so it validates the inference and persistence path, not recognition quality.
+The API integration test uses a stubbed speech recognizer and a temporary SQLite test database. Separately, the real Whisper and emotion checkpoints were exercised through the running API with a temporary test account and a silence recording; the result round-tripped through Neon history, and the temporary account and session were deleted. That smoke test checks inference and persistence wiring, not speech-recognition quality.
 
-## Reproducible ASR pilot
+## Exploratory French ASR evaluation
 
-`whisper_cv_eval_seed42.py` runs the 25-clip French ASR evaluation with a fixed seed and utterance-level bootstrap confidence interval. The raw audio subset is not committed; obtain the French clips and `metadata.csv`, then run:
+`whisper_cv_eval_seed42.py` runs a 25-clip French ASR evaluation with a fixed seed and utterance-level bootstrap confidence interval. The raw audio subset is not committed; obtain the French clips and `metadata.csv`, then run:
 
 ```powershell
 python whisper_cv_eval_seed42.py --dataset-dir ..\french_dataset_50mb
 ```
 
-Recorded run: `openai-whisper` 20250625, Whisper `base`, CPU, French decoding, beam size 5; seed 42; 10,000 bootstrap resamples. The supplied French folder contains 1,262 audio files and Common Voice-style metadata; its exact Common Voice release was not supplied. The random 25-clip sample contained 25 speakers and produced WER 40.17% (92 errors / 229 reference words), bootstrap 95% CI [32.62%, 48.47%]. A separate five-clip pilot produced WER 26.19%, CER 10.27%, and one exact transcript. These are small exploratory ASR results, not emotion-recognition or learner-outcome results. No emotion labels were supplied, so emotion accuracy and F1 are not reported.
+Recorded pilot: `openai-whisper` 20250625, Whisper `base`, CPU, French decoding, beam size 5; seed 42; 10,000 bootstrap resamples. The supplied French folder contained 1,262 audio files and Common Voice-style metadata; its exact Common Voice release was not supplied. The random 25-clip sample contained 25 speakers and produced WER 40.17% (92 errors / 229 reference words), bootstrap 95% CI [32.62%, 48.47%]. A separate five-clip pilot produced WER 26.19%, CER 10.27%, and one exact transcript. These small exploratory results are not emotion-recognition or learner-outcome results. No emotion labels were supplied, so emotion accuracy and F1 are not reported.
